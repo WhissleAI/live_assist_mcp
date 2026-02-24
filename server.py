@@ -24,6 +24,7 @@ from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("whissle-mcp")
@@ -130,7 +131,7 @@ async def _agent_stream(
 # MCP Tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def search_memories(query: str) -> str:
     """Search your personal Whissle memories for context relevant to a query.
 
@@ -160,7 +161,7 @@ async def search_memories(query: str) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def store_memory(content: str, category: str = "general") -> str:
     """Store a piece of information to your Whissle memory for future recall.
 
@@ -186,7 +187,7 @@ async def store_memory(content: str, category: str = "general") -> str:
     return f"Stored to memory ({category}): {content[:120]}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def ask_agent(query: str) -> str:
     """Ask the Whissle intelligent agent any question with your full personal context.
 
@@ -199,7 +200,7 @@ async def ask_agent(query: str) -> str:
     return await _agent_stream(query)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def deep_research(query: str) -> str:
     """Run multi-source web research through the Whissle agent, personalized to you.
 
@@ -212,7 +213,7 @@ async def deep_research(query: str) -> str:
     return await _agent_stream(query, mode_hint="deep")
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def check_calendar(query: str = "what's on my calendar this week") -> str:
     """Check your Google Calendar for upcoming events and meetings.
 
@@ -222,7 +223,7 @@ async def check_calendar(query: str = "what's on my calendar this week") -> str:
     return await _agent_stream(query, mode_hint="calendar_query")
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def check_email(query: str = "summarize my recent emails") -> str:
     """Check your Gmail inbox and get a summary of recent messages.
 
@@ -232,7 +233,7 @@ async def check_email(query: str = "summarize my recent emails") -> str:
     return await _agent_stream(query, mode_hint="email_query")
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_weather(location: str = "") -> str:
     """Get current weather and forecast for a location (defaults to your home location).
 
@@ -244,7 +245,7 @@ async def get_weather(location: str = "") -> str:
     return await _agent_stream(q, mode_hint="weather", location=loc)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_news(query: str = "top headlines today") -> str:
     """Get the latest news headlines.
 
@@ -254,13 +255,13 @@ async def get_news(query: str = "top headlines today") -> str:
     return await _agent_stream(query, mode_hint="news")
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def daily_briefing() -> str:
     """Get your personalized daily briefing — weather, calendar, and top news combined."""
     return await _agent_stream("daily briefing", mode_hint="briefing")
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_user_context() -> str:
     """Retrieve your full Whissle profile: personality, archetype, communication style, and recent history.
 
