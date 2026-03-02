@@ -116,7 +116,7 @@ gcloud run deploy whissle-mcp \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars "MCP_TRANSPORT=sse,WHISSLE_AGENT_URL=https://whissle-gateway-843574834406.us-central1.run.app/agent,WHISSLE_BACKEND_URL=https://live-assist-backend-843574834406.europe-west1.run.app"
+  --set-env-vars "MCP_TRANSPORT=sse,WHISSLE_AGENT_URL=https://api.whissle.ai/agent,WHISSLE_BACKEND_URL=https://live-assist-backend-843574834406.europe-west1.run.app"
 ```
 
 > Note: The Cloud Run deployment does NOT bake in a user ID — each user passes their own ID via the `X-User-Id` header in their Cursor config.

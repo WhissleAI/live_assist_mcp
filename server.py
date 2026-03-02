@@ -5,8 +5,9 @@ Exposes the Whissle agentic backend (memories, personality, research,
 calendar, email, weather, briefing) as MCP tools so that any MCP-capable
 AI coding assistant can leverage the user's personal context.
 
-Requires:
-  WHISSLE_USER_ID   — the device/user ID stored in the Whissle backend
+Requires one of:
+  WHISSLE_USER_ID   — device ID (from browser.whissle.ai)
+  WHISSLE_API_TOKEN — API token (wh_...) — resolves to device ID automatically
 
 Optional:
   WHISSLE_AGENT_URL    — agent service URL (defaults to Cloud Run gateway)
@@ -31,7 +32,7 @@ logger = logging.getLogger("whissle-mcp")
 
 AGENT_URL = os.getenv(
     "WHISSLE_AGENT_URL",
-    "https://whissle-gateway-843574834406.us-central1.run.app/agent",
+    "https://api.whissle.ai/agent",
 ).rstrip("/")
 
 BACKEND_URL = os.getenv(
@@ -40,6 +41,7 @@ BACKEND_URL = os.getenv(
 ).rstrip("/")
 
 USER_ID = os.getenv("WHISSLE_USER_ID", "")
+API_TOKEN = os.getenv("WHISSLE_API_TOKEN", "").strip()
 USER_NAME = os.getenv("WHISSLE_USER_NAME", "")
 USER_LOCATION = os.getenv("WHISSLE_LOCATION", "")
 
@@ -47,6 +49,47 @@ TIMEOUT = httpx.Timeout(90, connect=10)
 
 _transport = os.getenv("MCP_TRANSPORT", "stdio")
 _port = int(os.getenv("PORT", "8080"))
+
+# Resolved from API token at first use
+_resolved_user_id: str | None = None
+
+
+def _auth_headers() -> dict[str, str]:
+    """Headers for API-token-authenticated requests."""
+    if API_TOKEN and API_TOKEN.startswith("wh_"):
+        return {"Authorization": f"Bearer {API_TOKEN}"}
+    return {}
+
+
+async def _resolve_user_id() -> str:
+    """Resolve user ID from API token if needed."""
+    global _resolved_user_id
+    if USER_ID:
+        return USER_ID
+    if _resolved_user_id:
+        return _resolved_user_id
+    if not API_TOKEN or not API_TOKEN.startswith("wh_"):
+        raise ValueError(
+            "Set WHISSLE_USER_ID or WHISSLE_API_TOKEN in your MCP config. "
+            "Get a token at browser.whissle.ai/access"
+        )
+    validate_url = f"{BACKEND_URL.rstrip('/')}/api-tokens/validate?token={API_TOKEN}"
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        r = await client.get(validate_url)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("valid") and data.get("deviceId"):
+                _resolved_user_id = data["deviceId"]
+                return _resolved_user_id
+    raise ValueError("Invalid WHISSLE_API_TOKEN. Generate a new one at browser.whissle.ai/access")
+
+
+async def _ensure_user_id() -> str:
+    """Async helper to resolve user ID (for API token)."""
+    if USER_ID:
+        return USER_ID
+    return await _resolve_user_id()
+
 
 mcp = FastMCP(
     "Whissle Live Assist",
@@ -57,20 +100,6 @@ mcp = FastMCP(
     host="0.0.0.0",
     port=_port,
 )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _user_id() -> str:
-    uid = USER_ID
-    if not uid:
-        raise ValueError(
-            "WHISSLE_USER_ID is not set. "
-            "Pass it via env or the Cursor MCP config."
-        )
-    return uid
 
 
 async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
@@ -105,9 +134,10 @@ async def _agent_stream(
     **extra: Any,
 ) -> str:
     """POST to /route/stream, consume SSE, return final text."""
+    uid = await _ensure_user_id()
     body: dict[str, Any] = {
         "query": query,
-        "user_id": _user_id(),
+        "user_id": uid,
         "user_name": USER_NAME,
         "location": USER_LOCATION,
     }
@@ -115,11 +145,13 @@ async def _agent_stream(
         body["mode_hint"] = mode_hint
     body.update(extra)
 
+    headers = {"Accept": "text/event-stream", **_auth_headers()}
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         async with client.stream(
             "POST",
             f"{AGENT_URL}/route/stream",
             json=body,
+            headers=headers,
         ) as resp:
             resp.raise_for_status()
             result = await _consume_sse(resp)
@@ -141,11 +173,12 @@ async def search_memories(query: str) -> str:
     Args:
         query: What to search for in your memories (e.g. "database schema decision")
     """
-    uid = _user_id()
+    uid = await _ensure_user_id()
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resp = await client.post(
             f"{AGENT_URL}/memory/search",
             json={"user_id": uid, "query": query, "limit": 12, "min_relevance": 0.1},
+            headers=_auth_headers(),
         )
         resp.raise_for_status()
         data = resp.json()
@@ -172,7 +205,7 @@ async def store_memory(content: str, category: str = "general") -> str:
         content: The information to remember (e.g. "Decided to use PostgreSQL for the main DB")
         category: Category tag — general, preference, decision, note, project
     """
-    uid = _user_id()
+    uid = await _ensure_user_id()
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resp = await client.post(
             f"{AGENT_URL}/memory/store",
@@ -182,6 +215,7 @@ async def store_memory(content: str, category: str = "general") -> str:
                 "category": category,
                 "source": "cursor-mcp",
             },
+            headers=_auth_headers(),
         )
         resp.raise_for_status()
     return f"Stored to memory ({category}): {content[:120]}"
@@ -268,10 +302,11 @@ async def get_user_context() -> str:
     Use this when you need to understand the user's preferences or style before
     generating code, documentation, or responses.
     """
-    uid = _user_id()
+    uid = await _ensure_user_id()
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resp = await client.get(
             f"{AGENT_URL}/conversation/context/{uid}",
+            headers=_auth_headers(),
         )
         resp.raise_for_status()
         data = resp.json()
