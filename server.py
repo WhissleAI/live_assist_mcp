@@ -1,12 +1,13 @@
 """
-Whissle Live Assist — MCP Server for Cursor / Claude Desktop.
+Whissle Live Assist — MCP Server for Claude Code / Cursor / Claude Desktop.
 
-Exposes the Whissle agentic backend (memories, personality, research,
-calendar, email, weather, briefing) as MCP tools so that any MCP-capable
-AI coding assistant can leverage the user's personal context.
+Exposes the full Whissle agentic backend as MCP tools so that any MCP-capable
+AI coding assistant can leverage the user's personal context and all gateway
+capabilities — memories, calendar, email, contacts, research, web search,
+code execution, Google Drive/Sheets/Tasks, finance, media, navigation, and more.
 
 Requires one of:
-  WHISSLE_USER_ID   — device ID (from browser.whissle.ai)
+  WHISSLE_USER_ID   — device ID (from lulu.whissle.ai)
   WHISSLE_API_TOKEN — API token (wh_...) — resolves to device ID automatically
 
 Optional:
@@ -50,19 +51,16 @@ TIMEOUT = httpx.Timeout(90, connect=10)
 _transport = os.getenv("MCP_TRANSPORT", "stdio")
 _port = int(os.getenv("PORT", "8080"))
 
-# Resolved from API token at first use
 _resolved_user_id: str | None = None
 
 
 def _auth_headers() -> dict[str, str]:
-    """Headers for API-token-authenticated requests."""
     if API_TOKEN and API_TOKEN.startswith("wh_"):
         return {"Authorization": f"Bearer {API_TOKEN}"}
     return {}
 
 
 async def _resolve_user_id() -> str:
-    """Resolve user ID from API token if needed."""
     global _resolved_user_id
     if USER_ID:
         return USER_ID
@@ -71,7 +69,7 @@ async def _resolve_user_id() -> str:
     if not API_TOKEN or not API_TOKEN.startswith("wh_"):
         raise ValueError(
             "Set WHISSLE_USER_ID or WHISSLE_API_TOKEN in your MCP config. "
-            "Get a token at browser.whissle.ai/access"
+            "Get a token at lulu.whissle.ai/access"
         )
     validate_url = f"{BACKEND_URL.rstrip('/')}/api-tokens/validate?token={API_TOKEN}"
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
@@ -81,11 +79,10 @@ async def _resolve_user_id() -> str:
             if data.get("valid") and data.get("deviceId"):
                 _resolved_user_id = data["deviceId"]
                 return _resolved_user_id
-    raise ValueError("Invalid WHISSLE_API_TOKEN. Generate a new one at browser.whissle.ai/access")
+    raise ValueError("Invalid WHISSLE_API_TOKEN. Generate a new one at lulu.whissle.ai/access")
 
 
 async def _ensure_user_id() -> str:
-    """Async helper to resolve user ID (for API token)."""
     if USER_ID:
         return USER_ID
     return await _resolve_user_id()
@@ -94,19 +91,23 @@ async def _ensure_user_id() -> str:
 mcp = FastMCP(
     "Whissle Live Assist",
     instructions=(
-        "Personal AI assistant with memories, personality, calendar, email, "
-        "weather, news, research, and daily briefings — all personalized to you."
+        "Full-featured personal AI assistant with 30+ tools — memories, personality, "
+        "calendar, email, contacts, web search, research, code execution, Google "
+        "Drive/Sheets/Tasks, weather, news, finance, media, navigation, and more. "
+        "All personalized to the user via their Whissle profile."
     ),
     host="0.0.0.0",
     port=_port,
 )
 
 
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
 async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
-    """Consume an SSE stream from /route/stream and return assembled result."""
     chunks: list[str] = []
     metadata: dict[str, Any] = {}
-
     async for line in resp.aiter_lines():
         if not line.startswith("data: "):
             continue
@@ -114,7 +115,6 @@ async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
             event = json.loads(line[6:])
         except json.JSONDecodeError:
             continue
-
         etype = event.get("event", "")
         if etype == "chunk":
             chunks.append(event.get("text", ""))
@@ -124,7 +124,6 @@ async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
             metadata = event
         elif etype == "error":
             raise RuntimeError(event.get("message", "Agent error"))
-
     return {"text": "".join(chunks), **metadata}
 
 
@@ -133,7 +132,6 @@ async def _agent_stream(
     mode_hint: str = "",
     **extra: Any,
 ) -> str:
-    """POST to /route/stream, consume SSE, return final text."""
     uid = await _ensure_user_id()
     body: dict[str, Any] = {
         "query": query,
@@ -155,78 +153,68 @@ async def _agent_stream(
         ) as resp:
             resp.raise_for_status()
             result = await _consume_sse(resp)
-
     return result.get("text", "(no response)")
 
 
-# ---------------------------------------------------------------------------
-# MCP Tools
-# ---------------------------------------------------------------------------
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def search_memories(query: str) -> str:
-    """Search your personal Whissle memories for context relevant to a query.
-
-    Use this to recall past decisions, preferences, notes, or anything
-    you've previously told the assistant.
-
-    Args:
-        query: What to search for in your memories (e.g. "database schema decision")
-    """
-    uid = await _ensure_user_id()
+async def _agent_post(endpoint: str, body: dict[str, Any]) -> dict[str, Any]:
+    headers = _auth_headers()
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resp = await client.post(
-            f"{AGENT_URL}/memory/search",
-            json={"user_id": uid, "query": query, "limit": 12, "min_relevance": 0.1},
-            headers=_auth_headers(),
+            f"{AGENT_URL}{endpoint}",
+            json=body,
+            headers=headers,
         )
         resp.raise_for_status()
-        data = resp.json()
-
-    results = data.get("results", data.get("memories", []))
-    if not results:
-        return "No relevant memories found."
-
-    lines = []
-    for i, m in enumerate(results, 1):
-        content = m.get("content", m) if isinstance(m, dict) else str(m)
-        lines.append(f"{i}. {content}")
-    return "\n".join(lines)
+        return resp.json()
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
-async def store_memory(content: str, category: str = "general") -> str:
-    """Store a piece of information to your Whissle memory for future recall.
+async def _agent_get(endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    headers = _auth_headers()
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        resp = await client.get(
+            f"{AGENT_URL}{endpoint}",
+            params=params,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
-    Use this to save decisions, preferences, important context, or anything
-    you want the assistant to remember across sessions.
 
-    Args:
-        content: The information to remember (e.g. "Decided to use PostgreSQL for the main DB")
-        category: Category tag — general, preference, decision, note, project
-    """
-    uid = await _ensure_user_id()
+async def _backend_post(endpoint: str, body: dict[str, Any]) -> dict[str, Any]:
+    headers = _auth_headers()
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resp = await client.post(
-            f"{AGENT_URL}/memory/store",
-            json={
-                "user_id": uid,
-                "content": content,
-                "category": category,
-                "source": "cursor-mcp",
-            },
-            headers=_auth_headers(),
+            f"{BACKEND_URL}{endpoint}",
+            json=body,
+            headers=headers,
         )
         resp.raise_for_status()
-    return f"Stored to memory ({category}): {content[:120]}"
+        return resp.json()
 
+
+async def _backend_get(endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    headers = _auth_headers()
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        resp = await client.get(
+            f"{BACKEND_URL}{endpoint}",
+            params=params,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Core Agent
+# ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def ask_agent(query: str) -> str:
     """Ask the Whissle intelligent agent any question with your full personal context.
 
-    The agent automatically detects intent and routes to chat, research, weather,
-    calendar, email, news, or memories — with your personality and memories included.
+    The agent automatically detects intent and routes to the right capability —
+    chat, research, weather, calendar, email, news, memories, code execution,
+    and more. Use this as the general-purpose "do anything" tool.
 
     Args:
         query: Your question or request (e.g. "What should I focus on today?")
@@ -239,60 +227,13 @@ async def deep_research(query: str) -> str:
     """Run multi-source web research through the Whissle agent, personalized to you.
 
     Searches multiple sources, synthesizes findings, and returns a detailed report
-    with citations. Your personality and preferences shape the output style.
+    with citations. Use for technical research, competitive analysis, best practices,
+    or any question that needs comprehensive web research.
 
     Args:
         query: Research topic (e.g. "Best practices for WebSocket reconnection in React 2025")
     """
     return await _agent_stream(query, mode_hint="deep")
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def check_calendar(query: str = "what's on my calendar this week") -> str:
-    """Check your Google Calendar for upcoming events and meetings.
-
-    Args:
-        query: Calendar question (e.g. "what meetings do I have tomorrow")
-    """
-    return await _agent_stream(query, mode_hint="calendar_query")
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def check_email(query: str = "summarize my recent emails") -> str:
-    """Check your Gmail inbox and get a summary of recent messages.
-
-    Args:
-        query: Email question (e.g. "any important emails today")
-    """
-    return await _agent_stream(query, mode_hint="email_query")
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def get_weather(location: str = "") -> str:
-    """Get current weather and forecast for a location (defaults to your home location).
-
-    Args:
-        location: City or location name (leave empty to use your default)
-    """
-    loc = location or USER_LOCATION
-    q = f"weather in {loc}" if loc else "what's the weather"
-    return await _agent_stream(q, mode_hint="weather", location=loc)
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def get_news(query: str = "top headlines today") -> str:
-    """Get the latest news headlines.
-
-    Args:
-        query: News topic or "top headlines" for general news
-    """
-    return await _agent_stream(query, mode_hint="news")
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def daily_briefing() -> str:
-    """Get your personalized daily briefing — weather, calendar, and top news combined."""
-    return await _agent_stream("daily briefing", mode_hint="briefing")
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -333,8 +274,626 @@ async def get_user_context() -> str:
         notes = data["notes"]
         note_lines = [f"  - {n[:150]}" for n in (notes if isinstance(notes, list) else [notes])[:3]]
         parts.append("Notes:\n" + "\n".join(note_lines))
-
     return "\n\n".join(parts) if parts else "No user context available."
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Memory
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def search_memories(query: str) -> str:
+    """Search your personal Whissle memories for context relevant to a query.
+
+    Use this to recall past decisions, preferences, notes, or anything
+    you've previously told the assistant.
+
+    Args:
+        query: What to search for in your memories (e.g. "database schema decision")
+    """
+    uid = await _ensure_user_id()
+    data = await _agent_post("/memory/search", {
+        "user_id": uid, "query": query, "limit": 12, "min_relevance": 0.1,
+    })
+    results = data.get("results", data.get("memories", []))
+    if not results:
+        return "No relevant memories found."
+    lines = []
+    for i, m in enumerate(results, 1):
+        content = m.get("content", m) if isinstance(m, dict) else str(m)
+        lines.append(f"{i}. {content}")
+    return "\n".join(lines)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def store_memory(content: str, category: str = "general") -> str:
+    """Store a piece of information to your Whissle memory for future recall.
+
+    Use this to save decisions, preferences, important context, or anything
+    you want the assistant to remember across sessions.
+
+    Args:
+        content: The information to remember (e.g. "Decided to use PostgreSQL for the main DB")
+        category: Category tag — general, preference, decision, note, project
+    """
+    uid = await _ensure_user_id()
+    await _agent_post("/memory/store", {
+        "user_id": uid,
+        "content": content,
+        "category": category,
+        "source": "mcp",
+    })
+    return f"Stored to memory ({category}): {content[:120]}"
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Calendar & Email
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def check_calendar(query: str = "what's on my calendar this week") -> str:
+    """Check your Google Calendar for upcoming events and meetings.
+
+    Args:
+        query: Calendar question (e.g. "what meetings do I have tomorrow")
+    """
+    return await _agent_stream(query, mode_hint="calendar_query")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def check_email(query: str = "summarize my recent emails") -> str:
+    """Check your Gmail inbox and get a summary of recent messages.
+
+    Args:
+        query: Email question (e.g. "any important emails today")
+    """
+    return await _agent_stream(query, mode_hint="email_query")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def send_email(to: str, subject: str, body: str) -> str:
+    """Send an email via the user's connected email provider (Whissle or Gmail).
+
+    Args:
+        to: Recipient email address
+        subject: Email subject line
+        body: Email body text
+    """
+    return await _agent_stream(
+        f"Send an email to {to} with subject '{subject}' and body: {body}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def create_calendar_event(
+    title: str,
+    start_time: str,
+    end_time: str = "",
+    location: str = "",
+    description: str = "",
+) -> str:
+    """Create a new event on your Google Calendar.
+
+    Args:
+        title: Event title
+        start_time: ISO 8601 start time (e.g. "2026-04-25T10:00:00")
+        end_time: ISO 8601 end time (optional, defaults to 1 hour after start)
+        location: Event location (optional)
+        description: Event description (optional)
+    """
+    parts = [f"Create a calendar event titled '{title}' at {start_time}"]
+    if end_time:
+        parts.append(f"ending at {end_time}")
+    if location:
+        parts.append(f"at {location}")
+    if description:
+        parts.append(f"with description: {description}")
+    return await _agent_stream(" ".join(parts), mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def set_reminder(title: str, remind_at: str, notes: str = "") -> str:
+    """Set a reminder by creating a calendar event with an alert.
+
+    Args:
+        title: What to be reminded about
+        remind_at: ISO 8601 datetime for the reminder
+        notes: Additional context (optional)
+    """
+    q = f"Remind me to {title} at {remind_at}"
+    if notes:
+        q += f". Notes: {notes}"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Contacts & Google Services
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def search_contacts(name: str) -> str:
+    """Search your Google Contacts by name. Returns name, email, and phone.
+
+    Use this to look up a person's email or phone number before sending a message.
+
+    Args:
+        name: Name to search for (e.g. "John Smith")
+    """
+    return await _agent_stream(
+        f"Search my contacts for {name}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def search_drive(query: str) -> str:
+    """Search your Google Drive for documents. Returns file names, types, and modification dates.
+
+    Args:
+        query: Search query for Drive files (e.g. "Q4 report" or "budget spreadsheet")
+    """
+    return await _agent_stream(
+        f"Search my Google Drive for: {query}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def save_to_sheet(data: str) -> str:
+    """Save data to a Google Sheet. Use for structured data collection, logging, or tracking.
+
+    Args:
+        data: JSON string of key-value pairs to save (e.g. '{"name": "John", "date": "2026-03-25"}')
+    """
+    return await _agent_stream(
+        f"Save this data to my Google Sheet: {data}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def read_from_sheet(max_rows: int = 20) -> str:
+    """Read rows from a Google Sheet. Use to look up stored data, check availability, etc.
+
+    Args:
+        max_rows: Maximum rows to read (default 20, max 100)
+    """
+    return await _agent_stream(
+        f"Read the last {max_rows} rows from my Google Sheet",
+        mode_hint="agentic",
+    )
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Google Tasks
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def create_task(title: str, notes: str = "", due: str = "") -> str:
+    """Add an item to your Google Tasks to-do list.
+
+    Args:
+        title: Task title/description
+        notes: Additional notes (optional)
+        due: Due date in ISO 8601 or natural language (optional)
+    """
+    q = f"Add a task: {title}"
+    if due:
+        q += f", due {due}"
+    if notes:
+        q += f". Notes: {notes}"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def list_tasks(max_results: int = 20, show_completed: bool = False) -> str:
+    """Show your Google Tasks to-do list.
+
+    Args:
+        max_results: Max tasks to return (default 20)
+        show_completed: Include completed tasks (default false)
+    """
+    q = "Show my to-do list"
+    if show_completed:
+        q += " including completed tasks"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def complete_task(task_id: str) -> str:
+    """Mark a task as completed in Google Tasks.
+
+    Args:
+        task_id: ID of the task to complete
+    """
+    return await _agent_stream(
+        f"Mark task {task_id} as completed",
+        mode_hint="agentic",
+    )
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Web Search & Research
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def web_search(query: str) -> str:
+    """Search the web for current information via the Whissle agent.
+
+    Use for real-time data, recommendations, prices, reviews, documentation,
+    or anything that needs up-to-date info. Powered by DuckDuckGo through
+    the Whissle gateway — no additional API keys needed.
+
+    Args:
+        query: Search query (e.g. "FastAPI websocket best practices 2026")
+    """
+    return await _agent_stream(query, mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def read_url(url: str) -> str:
+    """Fetch and extract the main text content from a webpage URL.
+
+    Use when you need to read an article, documentation page, or any web content.
+
+    Args:
+        url: The full URL to read (e.g. "https://example.com/docs/api")
+    """
+    return await _agent_stream(
+        f"Read and summarize this URL: {url}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def fetch_news(query: str = "top headlines", topic: str = "", max_results: int = 5) -> str:
+    """Fetch the latest news headlines. Supports topic-specific queries.
+
+    Args:
+        query: News search query (e.g. "technology news" or "latest on AI")
+        topic: Optional topic filter: technology, business, sports, entertainment, health, science, politics, world
+        max_results: Number of headlines to return (default 5, max 10)
+    """
+    q = query
+    if topic:
+        q = f"{topic} news: {query}"
+    return await _agent_stream(q, mode_hint="news")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def get_weather(location: str = "") -> str:
+    """Get current weather and forecast for a location (defaults to your home location).
+
+    Args:
+        location: City or location name (leave empty to use your default)
+    """
+    loc = location or USER_LOCATION
+    q = f"weather in {loc}" if loc else "what's the weather"
+    return await _agent_stream(q, mode_hint="weather", location=loc)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def get_news(query: str = "top headlines today") -> str:
+    """Get the latest news headlines.
+
+    Args:
+        query: News topic or "top headlines" for general news
+    """
+    return await _agent_stream(query, mode_hint="news")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def daily_briefing() -> str:
+    """Get your personalized daily briefing — weather, calendar, and top news combined."""
+    return await _agent_stream("daily briefing", mode_hint="briefing")
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Finance
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def get_stock_price(symbol: str) -> str:
+    """Get the current stock price and daily change for a ticker symbol.
+
+    Works for US stocks, ETFs, and indices.
+
+    Args:
+        symbol: Stock ticker symbol (e.g. "AAPL", "GOOGL", "TSLA", "SPY")
+    """
+    return await _agent_stream(
+        f"What is the current stock price for {symbol}?",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def get_crypto_price(coin: str) -> str:
+    """Get the current cryptocurrency price in USD with 24-hour change.
+
+    Args:
+        coin: Cryptocurrency name or id (e.g. "bitcoin", "ethereum", "solana")
+    """
+    return await _agent_stream(
+        f"What is the current price of {coin}?",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def convert_currency(amount: float, from_currency: str, to_currency: str) -> str:
+    """Convert between currencies using real-time exchange rates.
+
+    Args:
+        amount: Amount to convert
+        from_currency: Source currency code (e.g. USD, EUR, GBP, JPY, INR)
+        to_currency: Target currency code
+    """
+    return await _agent_stream(
+        f"Convert {amount} {from_currency} to {to_currency}",
+        mode_hint="agentic",
+    )
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Media & Creative
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def search_videos(query: str, max_results: int = 5) -> str:
+    """Search YouTube for videos. Use for music, tutorials, how-to guides, trailers.
+
+    Args:
+        query: Video search query (e.g. "python tutorial for beginners")
+        max_results: Number of videos to return (default 5, max 10)
+    """
+    return await _agent_stream(
+        f"Search YouTube for: {query} (show {max_results} results)",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def generate_image(prompt: str) -> str:
+    """Generate an image from a text description.
+
+    Use when asked to draw, create, illustrate, design, or generate visual content.
+
+    Args:
+        prompt: Detailed description of the image to generate
+    """
+    return await _agent_stream(
+        f"Generate an image: {prompt}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def analyze_image(image_url: str, question: str = "") -> str:
+    """Analyze an image from a URL using vision AI. Describe contents, read text, identify objects.
+
+    Args:
+        image_url: URL of the image to analyze
+        question: Specific question about the image (optional)
+    """
+    q = f"Analyze this image: {image_url}"
+    if question:
+        q += f". Question: {question}"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def analyze_audio(audio_url: str) -> str:
+    """Transcribe and analyze audio: speaker detection, emotion, key topics.
+
+    Args:
+        audio_url: URL of the audio file to analyze
+    """
+    return await _agent_stream(
+        f"Analyze this audio file: {audio_url}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def analyze_video(video_url: str) -> str:
+    """Analyze a video: visual description, transcription, emotion flow, key moments.
+
+    Args:
+        video_url: URL of the video file to analyze
+    """
+    return await _agent_stream(
+        f"Analyze this video: {video_url}",
+        mode_hint="agentic",
+    )
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Utilities
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def translate_text(text: str, target_language: str, source_language: str = "") -> str:
+    """Translate text from one language to another.
+
+    Args:
+        text: The text to translate
+        target_language: Target language (e.g. "Spanish", "French", "Japanese", "Hindi")
+        source_language: Source language (optional, auto-detected if omitted)
+    """
+    q = f"Translate to {target_language}: {text}"
+    if source_language:
+        q = f"Translate from {source_language} to {target_language}: {text}"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def calculate(expression: str) -> str:
+    """Perform math calculations, unit conversions, percentage computations.
+
+    Args:
+        expression: Math expression or question (e.g. "15% of 340", "convert 72F to celsius")
+    """
+    return await _agent_stream(
+        f"Calculate: {expression}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def run_code(code: str, language: str = "python") -> str:
+    """Execute Python or JavaScript code in a sandbox on the Whissle gateway.
+
+    Use for calculations, data processing, chart generation, CSV analysis,
+    or testing code snippets. Returns stdout, stderr, and generated files.
+
+    Args:
+        code: Code to execute
+        language: Programming language — "python" or "javascript"
+    """
+    return await _agent_stream(
+        f"Run this {language} code:\n```{language}\n{code}\n```",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def analyze_document(content: str, file_type: str = "txt", question: str = "") -> str:
+    """Analyze a document (PDF, CSV, TXT). Summarize, extract data, or answer questions.
+
+    Args:
+        content: Document text content
+        file_type: File type — "pdf", "csv", "txt", "markdown"
+        question: Specific question about the document (optional)
+    """
+    q = f"Analyze this {file_type} document:\n{content[:4000]}"
+    if question:
+        q += f"\n\nQuestion: {question}"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def extract_text_metadata(text: str, context: str = "") -> str:
+    """Extract speech-style metadata from text: emotion, intent, age group, gender, entities, speaker changes.
+
+    Same metadata that Whissle STT extracts from audio, but inferred from text.
+
+    Args:
+        text: The text or transcript to analyze
+        context: Optional conversation context for better inference
+    """
+    q = f"Extract text metadata (emotion, intent, demographics, entities) from: {text}"
+    if context:
+        q += f"\nContext: {context}"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Navigation & Places
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def search_places(query: str, near: str = "", max_results: int = 5) -> str:
+    """Search for nearby places, businesses, or points of interest using Google Places.
+
+    Use for "find gas stations nearby", "coffee shops near me", "restaurants in downtown".
+
+    Args:
+        query: Place search query (e.g. "gas stations", "restaurants", "EV charging stations")
+        near: City or location to search near (optional, uses your default location)
+        max_results: Max places to return (default 5, max 10)
+    """
+    loc = near or USER_LOCATION
+    q = f"Find {query}"
+    if loc:
+        q += f" near {loc}"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def get_directions(
+    destination: str,
+    origin: str = "",
+    travel_mode: str = "driving",
+    avoid: str = "",
+) -> str:
+    """Get directions between two locations with traffic-aware ETA.
+
+    Returns distance, duration, and turn-by-turn steps.
+
+    Args:
+        destination: Destination address or place name
+        origin: Starting location (optional, defaults to your current location)
+        travel_mode: Travel mode — "driving", "walking", "transit", "bicycling"
+        avoid: Comma-separated: tolls, highways, ferries (optional)
+    """
+    q = f"Get {travel_mode} directions to {destination}"
+    if origin:
+        q += f" from {origin}"
+    if avoid:
+        q += f" avoiding {avoid}"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Scheduling & Preferences
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def schedule_recurring(
+    title: str,
+    action_type: str = "run_query",
+    action_config: str = "",
+    schedule_type: str = "recurring",
+    interval_minutes: int = 1440,
+) -> str:
+    """Schedule a recurring or one-time task. The task will run automatically.
+
+    Args:
+        title: Task title (e.g. "Daily briefing", "Weekly report")
+        action_type: What to do — "send_email" or "run_query"
+        action_config: JSON config for the action (optional)
+        schedule_type: "once" or "recurring"
+        interval_minutes: Minutes between runs for recurring (1440=daily, 10080=weekly)
+    """
+    q = f"Schedule a {schedule_type} task: {title}, every {interval_minutes} minutes, action: {action_type}"
+    if action_config:
+        q += f", config: {action_config}"
+    return await _agent_stream(q, mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def list_scheduled_tasks() -> str:
+    """Show your active scheduled/recurring tasks."""
+    return await _agent_stream("List my scheduled tasks", mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def cancel_scheduled_task(task_id: str) -> str:
+    """Cancel a scheduled task by its ID.
+
+    Args:
+        task_id: ID of the task to cancel
+    """
+    return await _agent_stream(
+        f"Cancel scheduled task {task_id}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def set_preference(key: str, value: str) -> str:
+    """Save a user preference setting (timezone, units, language, response style, etc).
+
+    Args:
+        key: Preference key (timezone, units, language, response_style, name, location)
+        value: Preference value
+    """
+    return await _agent_stream(
+        f"Set my preference: {key} = {value}",
+        mode_hint="agentic",
+    )
 
 
 # ---------------------------------------------------------------------------
