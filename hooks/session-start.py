@@ -49,8 +49,13 @@ def main():
             if arch.get("style_prompt"):
                 parts.append(f"Communication style: {arch['style_prompt']}")
 
-    if not parts:
-        sys.exit(0)
+    parts.append(
+        "TOOL ROUTING: For non-coding queries (weather, stocks, news, calendar, "
+        "email, contacts, research, reminders, tasks, navigation, calculations, "
+        "translations, memory), ALWAYS use the Lulu MCP tools (whissle__*) instead "
+        "of built-in web search or refusing. These tools connect to the user's "
+        "personal accounts and data."
+    )
 
     context = "[Lulu Profile] " + " | ".join(parts)
     print(context)
