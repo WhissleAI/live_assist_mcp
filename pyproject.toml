@@ -1,7 +1,7 @@
 [project]
-name = "lulu-claude"
+name = "lulu-code"
 version = "0.1.0"
-description = "Lulu — personal AI middleware for Claude Code, Cursor & Claude Desktop"
+description = "Lulu — personal AI middleware for Claude Code, Cursor & VS Code"
 requires-python = ">=3.11"
 dependencies = [
     "mcp[cli]>=1.2.0",

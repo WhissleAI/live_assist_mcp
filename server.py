@@ -29,7 +29,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("lulu-claude")
+logger = logging.getLogger("lulu-code")
 
 AGENT_URL = os.getenv(
     "WHISSLE_AGENT_URL",

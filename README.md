@@ -1,6 +1,6 @@
-# lulu-claude
+# lulu-code
 
-Personal AI middleware for Claude Code — voice dictation, emotion/intent detection, and 35+ MCP tools. Lulu sits between you and Claude, analyzing every input (typed or spoken) for emotion, intent, and demographics, building a personality profile that makes Claude increasingly personalized over time.
+Personal AI middleware for Claude Code, Cursor, and VS Code. Lulu intercepts both text and voice input streams, enriches them with emotion, intent, and behavioral metadata, then passes the augmented context to your AI tool. Every interaction builds a personality profile that makes your coding assistant increasingly personalized over time.
 
 ## How it works
 
@@ -9,43 +9,59 @@ You (typing or speaking)
         |
    ┌────┴────┐
    v         v
- Text      Voice
- Hook      (Alt+V)
+ Text      Voice (Alt+V)
    |         |
-   |    sox (mic) → Whissle ASR (WebSocket)
-   |         |        speaker ID, emotion,
-   |         |        intent, speech rate
-   |         v
-   |    Transcription + metadata
-   |    injected into Claude PTY
+   |    sox (mic) → Whissle ASR
    |         |
    v         v
- ┌─────────────────────────────────────┐
- │  Claude Code / Cursor               │
- │                                     │
- │  + 35 MCP tools (calendar, email,   │
- │    memory, research, drive, etc.)   │
- └──────────────┬──────────────────────┘
-                |
-                v
-       Whissle Gateway (api.whissle.ai)
-       Personality, archetype, behavioral
-       profile, conversation memory
+┌──────────────────────────────────────┐
+│          Lulu (middleware)            │
+│                                      │
+│  Text stream:                        │
+│    regex → emotion + intent          │
+│    async → behavioral profiling      │
+│                                      │
+│  Voice stream:                       │
+│    ASR → transcription + emotion     │
+│    + intent + demographics           │
+│    + speech rate + speaker ID        │
+│                                      │
+│  Session start:                      │
+│    personality + archetype loaded    │
+│                                      │
+│  Enriched input (text or voice)      │
+│  + [user signal: emotion, intent]    │
+│  + personality context               │
+└──────────────┬───────────────────────┘
+               v
+┌──────────────────────────────────────┐
+│  Claude Code / Cursor / VS Code      │
+│                                      │
+│  Receives enriched input with full   │
+│  user context — acts on it           │
+│                                      │
+│  + 35 MCP tools (calendar, email,    │
+│    memory, research, drive, etc.)    │
+└──────────────┬───────────────────────┘
+               v
+      Whissle Gateway (api.whissle.ai)
+      Personality, archetype, behavioral
+      profile, conversation memory
 ```
 
 Three layers:
 
 | Layer | What it does | How |
 |---|---|---|
-| **Text hooks** | Extracts emotion + intent from every typed prompt, loads personality on session start | Claude Code hooks (`UserPromptSubmit`, `SessionStart`) |
-| **Voice input** | Alt+V push-to-talk — streams audio to Whissle ASR, returns transcription with emotion, intent, demographics, speech rate, speaker ID | `claude-voice` PTY wrapper |
+| **Text stream** | Intercepts every typed prompt, extracts emotion + intent, enriches input before the AI tool sees it | Hooks (`UserPromptSubmit`, `SessionStart`) |
+| **Voice stream** | Alt+V push-to-talk — streams audio to Whissle ASR, returns transcription with emotion, intent, demographics, speech rate, speaker ID | `claude-voice` PTY wrapper |
 | **MCP tools** | 35+ tools — calendar, email, contacts, memory, research, web search, Drive, Tasks, finance, media, navigation, weather | MCP server (`server.py`) |
 
 ## Install
 
 ```bash
-git clone https://github.com/WhissleAI/lulu-claude.git
-cd lulu-claude
+git clone https://github.com/WhissleAI/lulu-code.git
+cd lulu-code
 ./setup.sh
 ```
 
@@ -147,7 +163,7 @@ All input types feed the same personality pipeline.
 ## Project Structure
 
 ```
-lulu-claude/
+lulu-code/
   setup.sh               # Unified installer — MCP + hooks + voice
   server.py              # MCP server — 35+ tools
   pyproject.toml         # Python package config
@@ -177,8 +193,8 @@ If you prefer not to use `./setup.sh`:
 {
   "mcpServers": {
     "whissle": {
-      "command": "/path/to/lulu-claude/venv/bin/python",
-      "args": ["/path/to/lulu-claude/server.py"],
+      "command": "/path/to/lulu-code/venv/bin/python",
+      "args": ["/path/to/lulu-code/server.py"],
       "env": {
         "WHISSLE_API_TOKEN": "wh_your_token_here",
         "WHISSLE_USER_NAME": "Your Name",
@@ -194,8 +210,8 @@ If you prefer not to use `./setup.sh`:
 {
   "mcpServers": {
     "whissle": {
-      "command": "/path/to/lulu-claude/venv/bin/python",
-      "args": ["/path/to/lulu-claude/server.py"],
+      "command": "/path/to/lulu-code/venv/bin/python",
+      "args": ["/path/to/lulu-code/server.py"],
       "env": { "WHISSLE_API_TOKEN": "wh_your_token_here" }
     }
   }
