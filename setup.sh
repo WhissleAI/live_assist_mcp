@@ -157,13 +157,17 @@ if ! $SKIP_MCP; then
   echo -e "${BOLD}2. MCP Server${NC}"
   echo ""
 
-  if [ ! -f "$PYTHON" ]; then
+  if [ ! -f "$PYTHON" ] || ! "$PYTHON" --version &>/dev/null; then
     info "Creating Python virtual environment..."
+    rm -rf "$VENV_DIR"
     python3 -m venv "$VENV_DIR"
   fi
 
   info "Installing Python dependencies..."
-  "$VENV_DIR/bin/pip" install -q -e "$SCRIPT_DIR" 2>/dev/null
+  if ! "$VENV_DIR/bin/pip" install -q -e "$SCRIPT_DIR" 2>&1 | grep -v "^\[notice\]"; then
+    err "pip install failed. Try deleting venv/ and re-running setup."
+    exit 1
+  fi
   ok "MCP server ready (35+ tools)"
   echo ""
 fi
