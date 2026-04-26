@@ -1,10 +1,47 @@
 # whissle-claude
 
-Personal AI context for [Claude Code](https://claude.ai/code). 35+ MCP tools + voice dictation — your calendar, email, memories, personality, web research, and more, all inside Claude.
+Personal AI middleware for Claude Code — voice dictation, emotion/intent detection, and 35+ MCP tools. Whissle sits between you and Claude, analyzing every input (typed or spoken) for emotion, intent, and demographics, building a personality profile that makes Claude increasingly personalized over time.
 
-Every interaction — typed or spoken — is analyzed for emotion, intent, and demographics, building a personality profile that makes Claude increasingly personalized over time.
+## How it works
 
-## Install (one command)
+```
+You (typing or speaking)
+        |
+   ┌────┴────┐
+   v         v
+ Text      Voice
+ Hook      (Alt+V)
+   |         |
+   |    sox (mic) → Whissle ASR (WebSocket)
+   |         |        speaker ID, emotion,
+   |         |        intent, speech rate
+   |         v
+   |    Transcription + metadata
+   |    injected into Claude PTY
+   |         |
+   v         v
+ ┌─────────────────────────────────────┐
+ │  Claude Code / Cursor               │
+ │                                     │
+ │  + 35 MCP tools (calendar, email,   │
+ │    memory, research, drive, etc.)   │
+ └──────────────┬──────────────────────┘
+                |
+                v
+       Whissle Gateway (api.whissle.ai)
+       Personality, archetype, behavioral
+       profile, conversation memory
+```
+
+Three layers:
+
+| Layer | What it does | How |
+|---|---|---|
+| **Text hooks** | Extracts emotion + intent from every typed prompt, loads personality on session start | Claude Code hooks (`UserPromptSubmit`, `SessionStart`) |
+| **Voice input** | Alt+V push-to-talk — streams audio to Whissle ASR, returns transcription with emotion, intent, demographics, speech rate, speaker ID | `claude-voice` PTY wrapper |
+| **MCP tools** | 35+ tools — calendar, email, contacts, memory, research, web search, Drive, Tasks, finance, media, navigation, weather | MCP server (`server.py`) |
+
+## Install
 
 ```bash
 git clone https://github.com/WhissleAI/whissle-claude.git
@@ -13,14 +50,15 @@ cd whissle-claude
 ```
 
 The installer will:
-1. Check and install prerequisites (Node.js 22+, sox, Claude Code CLI, Python 3.11+, jq)
+1. Check prerequisites (Python 3.11+, Node.js 22+, sox, Claude Code CLI, jq)
 2. Prompt for your Whissle token (get one at [lulu.whissle.ai/access](https://lulu.whissle.ai/access))
 3. Validate the token against the Whissle gateway
-4. Save credentials to `~/.claude-voice/.env` (persisted across sessions)
+4. Set up the Python venv and MCP server
 5. Configure MCP for Claude Code, Cursor, and/or Claude Desktop
-6. Optionally symlink `claude-voice` to your PATH
+6. Configure hooks for Claude Code (emotion/intent on every prompt, personality on session start)
+7. Install claude-voice dependencies and optionally symlink to PATH
 
-**That's it.** Restart Claude Code and all 35+ tools are available. Run `claude-voice` for voice input.
+Restart Claude Code after setup. All tools and hooks activate automatically.
 
 ### Setup flags
 
@@ -34,42 +72,46 @@ The installer will:
 ./setup.sh --voice-only     # skip MCP server setup
 ```
 
-## Usage
+## Text hooks
 
-### MCP tools (text — works immediately after setup)
+Configured automatically by `./setup.sh` for Claude Code. Two hooks:
 
-Just use Claude Code normally. The 35+ Whissle tools are available to Claude automatically:
+**SessionStart** — fires once when Claude Code starts. Fetches your personality profile and archetype from the Whissle backend, injects it as context so Claude knows your communication style from the first prompt.
 
+**UserPromptSubmit** — fires on every Enter press. Runs local regex to extract emotion and intent (~5ms), returns it as `additionalContext` that Claude sees:
 ```
-> What's on my calendar today?          # Claude calls check_calendar
-> Search my memories for the auth decision we made last week
-> What's the weather in SF?
-> Send an email to john@example.com summarizing today's standup
-> Research best practices for WebSocket reconnection in 2026
+[user signal: emotion=ANGRY (60%), intent=QUERY (70%)]
 ```
+Also fires an async API call to log the text for behavioral profiling (non-blocking).
 
-Every text query you send through these tools is analyzed by the gateway for emotion, intent, and demographics — building your personality profile over time. You don't need to do anything special; it happens automatically.
+Debug hooks: `claude --debug hooks`
 
-### Voice (claude-voice)
+## Voice input
 
 ```bash
-claude-voice                              # basic — single user
+claude-voice                              # single user
 claude-voice --speakers karan,reviewer    # collaborative — pair programming
 claude-voice --model sonnet               # pass-through Claude flags
 claude-voice --continue                   # resume last conversation
 ```
 
-Press **Alt+V** to toggle recording. Speak your prompt. Press **Alt+V** to stop. Your speech is transcribed in real-time with emotion, intent, speech rate, and speaker identification — all injected into Claude's context.
+Press **Alt+V** to toggle recording. Speak your prompt. Press **Alt+V** to stop. Your speech is transcribed in real-time with metadata injected inline:
+
+```
+fix the auth middleware <!-- voice: speaker:karan, emotion:ANGRY, intent:COMMAND -->
+```
+
+Claude-voice also maintains `.claude-voice/context.md` with conversation dynamics, speaker profiles, and planning recommendations that Claude reads before responding.
 
 ### What gets analyzed
 
 | Input type | Emotion | Intent | Demographics | Speech rate | Speaker ID |
 |---|---|---|---|---|---|
-| **Typed text** (MCP) | Yes | Yes | Yes | — | — |
+| **Typed text** (hooks) | Yes | Yes | — | — | — |
 | **Typed text** (claude-voice) | Yes | Yes | Yes | — | Primary speaker |
 | **Voice** (claude-voice) | Yes (acoustic) | Yes (acoustic) | Yes | Yes | Yes (embeddings) |
 
-All three input types feed the same personality pipeline. A user who only types builds their profile just as effectively as one who speaks.
+All input types feed the same personality pipeline.
 
 ## MCP Tools (35+)
 
@@ -91,79 +133,6 @@ All three input types feed the same personality pipeline. A user who only types 
 | **Scheduling** | `schedule_recurring`, `list_scheduled_tasks`, `cancel_scheduled_task` |
 | **Settings** | `set_preference` |
 
-## Voice: How It Works
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  claude-voice (PTY wrapper)                              │
-│                                                          │
-│  stdin ──┬──> claude (with --append-system-prompt)       │
-│          │       ↕ reads .claude-voice/context.md        │
-│          │                                               │
-│          ├─ Alt+V > sox (mic) > Whissle ASR (WebSocket)  │
-│          │                        │                      │
-│          │         speaker ID <───┤ (cosine similarity)  │
-│          │         emotion    <───┤                      │
-│          │         intent     <───┘                      │
-│          │                                               │
-│          └─ Enter > text classifier (intent/emotion)     │
-│                                                          │
-│  Both voice and text > SessionContextStore               │
-│                         > .claude-voice/context.md       │
-│                         > inline <!-- voice: ... -->     │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Collaborative workflow
-
-1. Start with `--speakers karan,reviewer` (or any names)
-2. Each person presses Alt+V, speaks, presses Alt+V to stop
-3. Speaker change is auto-detected via voice embeddings (cosine similarity)
-4. Both speakers' metadata is tracked independently
-5. Claude reads `.claude-voice/context.md` for conversation dynamics — agreement level, urgency, and whether to ask, proceed, or present options
-
-### Context file (`.claude-voice/context.md`)
-
-Updated after every input. Contains:
-
-- **Current state** — active speakers, last input mode, session mood
-- **Speaker profiles** — per-speaker emotion trends, intent distribution, speech rate, filler word rate
-- **Conversation dynamics** — agreement level, urgency, planning cues
-- **Planning recommendations** — whether to ask a clarifying question, proceed with execution, or present options
-- **Recent inputs** — last 7 inputs with speaker labels and metadata
-
-## Architecture
-
-```
-                    You (typing or speaking)
-                    │                    │
-              ┌─────┘                    └─────┐
-              ▼                                ▼
-   ┌────────────────────┐          ┌───────────────────┐
-   │  MCP Server        │          │  claude-voice      │
-   │  (35+ tools)       │          │  (PTY + Alt+V mic) │
-   │                    │          │                    │
-   │  trigger_type:     │          │  ASR WebSocket     │
-   │  "typed"           │          │  speaker tracking  │
-   └────────┬───────────┘          └────────┬───────────┘
-            │                               │
-            ▼                               ▼
-   ┌────────────────────────────────────────────────────┐
-   │  Whissle Gateway (api.whissle.ai)                  │
-   │                                                    │
-   │  Text input:  regex + LLM metadata extraction      │
-   │  Voice input: ASR acoustic metadata                │
-   │                                                    │
-   │  Both feed: personality, archetype, behavioral     │
-   │  profile, RL bandit, conversation memory           │
-   └────────┬───────────────────────────────────────────┘
-            │
-       ┌────┴─────┬──────────┐
-       ▼          ▼          ▼
-    Agent      Backend    ASR/TTS
-   (Gemini)   (Node.js)  (Whissle)
-```
-
 ## Environment Variables
 
 | Variable | Required | Default | Description |
@@ -174,10 +143,30 @@ Updated after every input. Contains:
 | `WHISSLE_LOCATION` | No | — | Default location (weather/places) |
 | `WHISSLE_ASR_URL` | No | `wss://api.whissle.ai/asr/stream` | ASR WebSocket endpoint |
 | `WHISSLE_ASR_LANGUAGE` | No | `en` | Speech recognition language |
-| `WHISSLE_AGENT_URL` | No | `https://api.whissle.ai/agent` | Agent service URL |
-| `WHISSLE_BACKEND_URL` | No | Cloud Run backend | Node.js backend URL |
-| `MCP_TRANSPORT` | No | `stdio` | MCP transport: `stdio` or `sse` |
-| `PORT` | No | `8080` | Port for SSE transport |
+
+## Project Structure
+
+```
+whissle-claude/
+  setup.sh               # Unified installer — MCP + hooks + voice
+  server.py              # MCP server — 35+ tools
+  pyproject.toml         # Python package config
+  Dockerfile             # Cloud Run deployment (MCP only)
+  hooks/
+    prompt-submit.py     # UserPromptSubmit — emotion/intent extraction per prompt
+    session-start.py     # SessionStart — loads personality + archetype
+    shared.py            # Shared config, regex patterns, async profile logging
+  claude-voice/
+    claude-voice          # Shell entrypoint — loads token, launches PTY wrapper
+    package.json
+    src/
+      index.ts            # PTY wrapper, Alt+V intercept, system prompt injection
+      mic.ts              # Microphone capture via sox/rec (16kHz PCM)
+      asr-client.ts       # WebSocket client for Whissle ASR streaming
+      metadata.ts         # SessionContextStore — context.md + planning recommendations
+      speaker-tracker.ts  # Multi-speaker identification via cosine similarity
+      text-metadata.ts    # Text intent/emotion classification (regex)
+```
 
 ## Manual MCP Setup
 
@@ -213,52 +202,23 @@ If you prefer not to use `./setup.sh`:
 }
 ```
 
-**Cloud-hosted (SSE)** — for Cursor or Claude Desktop:
-```json
-{
-  "mcpServers": {
-    "whissle": {
-      "url": "https://whissle-mcp-843574834406.us-central1.run.app/sse",
-      "headers": { "X-User-Id": "YOUR_WHISSLE_USER_ID" }
-    }
-  }
-}
-```
-
-## Project Structure
-
-```
-whissle-claude/
-  server.py              # MCP server — 35+ tools, trigger_type + metadata passthrough
-  pyproject.toml         # Python package config (whissle-mcp)
-  setup.sh               # Unified installer (prereqs + credentials + MCP config + voice)
-  Dockerfile             # Cloud Run deployment (MCP only)
-  claude-voice/          # Voice dictation sub-package (TypeScript)
-    claude-voice          # Entrypoint — loads token from ~/.claude-voice/.env
-    package.json          # deps: node-pty, tsx, which
-    src/
-      index.ts            # PTY wrapper, Alt+V intercept, system prompt injection
-      mic.ts              # Microphone capture via sox/rec (16kHz PCM)
-      asr-client.ts       # WebSocket client for Whissle ASR streaming
-      metadata.ts         # SessionContextStore — context.md generation + planning recommendations
-      speaker-tracker.ts  # Multi-speaker identification via cosine similarity on embeddings
-      text-metadata.ts    # Text-based intent/emotion classification (regex heuristics)
-```
-
 ## Troubleshooting
 
-**`'claude' not found in PATH`** — Install Claude Code: `npm install -g @anthropic-ai/claude-code`
+**Hooks not firing** — Run `claude --debug hooks` to see hook lifecycle. Check `~/.claude/settings.json` has the `hooks` section. Restart Claude Code after setup.
 
 **`sox not found`** — Install sox: `brew install sox` (macOS) or `sudo apt install sox` (Linux)
 
-**`Voice server connection failed`** — Check your token is valid and you have internet connectivity
+**`claude` not found** — Install Claude Code: `npm install -g @anthropic-ai/claude-code`
 
-**`Mic error`** — Ensure your terminal has microphone permissions (macOS: System Settings > Privacy & Security > Microphone)
+**Voice server connection failed** — Check your token is valid and you have internet connectivity
 
-**Module errors** — `cd claude-voice && rm -rf node_modules && npm install`
+**MCP tools not appearing** — Restart Claude Code after `./setup.sh`. Check `~/.claude/settings.json` has the `whissle` MCP entry.
 
-**Speaker detection not working** — Short utterances (<2s) may not produce reliable embeddings. Speak in longer phrases.
+**Token expired** — Re-run `./setup.sh` to enter a new token, or edit `~/.claude-voice/.env` directly.
 
-**MCP tools not appearing** — Restart Claude Code after `./setup.sh`. Check `~/.claude/settings.json` has the `whissle` entry.
+## Uninstall
 
-**Token expired** — Re-run `./setup.sh` to enter a new token. Or edit `~/.claude-voice/.env` directly.
+```bash
+claude mcp remove whissle -s user
+# Remove hooks from ~/.claude/settings.json (delete the "hooks" key)
+```

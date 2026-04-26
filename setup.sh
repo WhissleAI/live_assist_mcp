@@ -372,6 +372,39 @@ ENDJSON
     upsert_mcp_config "$DESKTOP_CONFIG" "whissle" "$MCP_SERVER_JSON"
     ok "Claude Desktop configured ($DESKTOP_CONFIG)"
   fi
+  # ── Configure hooks (Claude Code only) ──────────────────────────────────
+  if $DO_CLAUDE_CODE; then
+    info "Configuring Claude Code hooks..."
+    HOOKS_DIR="$SCRIPT_DIR/hooks"
+    chmod +x "$HOOKS_DIR/prompt-submit.py" "$HOOKS_DIR/session-start.py" 2>/dev/null || true
+
+    HOOK_ENV="WHISSLE_API_TOKEN=${WHISSLE_API_TOKEN:-}"
+    [ -n "${WHISSLE_USER_NAME:-}" ] && HOOK_ENV="$HOOK_ENV WHISSLE_USER_NAME=$WHISSLE_USER_NAME"
+    [ -n "${WHISSLE_LOCATION:-}" ] && HOOK_ENV="$HOOK_ENV WHISSLE_LOCATION=$WHISSLE_LOCATION"
+
+    PROMPT_HOOK_CMD="$HOOK_ENV $PYTHON $HOOKS_DIR/prompt-submit.py"
+    SESSION_HOOK_CMD="$HOOK_ENV $PYTHON $HOOKS_DIR/session-start.py"
+
+    python3 -c "
+import json, os
+
+settings_path = os.path.expanduser('$CLAUDE_SETTINGS')
+try:
+    with open(settings_path) as f:
+        settings = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    settings = {}
+
+hooks = settings.setdefault('hooks', {})
+hooks['UserPromptSubmit'] = [{'hooks': [{'type': 'command', 'command': '''$PROMPT_HOOK_CMD'''}]}]
+hooks['SessionStart'] = [{'hooks': [{'type': 'command', 'command': '''$SESSION_HOOK_CMD'''}]}]
+
+with open(settings_path, 'w') as f:
+    json.dump(settings, f, indent=2)
+"
+    ok "Hooks configured (emotion/intent on every prompt, personality on session start)"
+  fi
+
   echo ""
 fi
 
@@ -414,21 +447,16 @@ echo ""
 
 if ! $SKIP_MCP; then
   echo "  MCP Server (35+ tools):"
-  echo "    Core:       ask_agent, deep_research, get_user_context"
-  echo "    Memory:     search_memories, store_memory"
-  echo "    Calendar:   check_calendar, create_calendar_event, set_reminder"
-  echo "    Email:      check_email, send_email"
-  echo "    Contacts:   search_contacts"
-  echo "    Drive:      search_drive, save_to_sheet, read_from_sheet"
-  echo "    Tasks:      create_task, list_tasks, complete_task"
-  echo "    Search:     web_search, read_url, fetch_news"
-  echo "    Finance:    get_stock_price, get_crypto_price, convert_currency"
-  echo "    Media:      search_videos, generate_image, analyze_image"
-  echo "    Utilities:  translate_text, calculate, run_code"
-  echo "    Navigation: search_places, get_directions"
-  echo "    Weather:    get_weather, daily_briefing"
+  echo "    Core, Memory, Calendar, Email, Contacts, Drive, Tasks,"
+  echo "    Web Search, Finance, Media, Utilities, Navigation, Weather"
   echo ""
-  echo "    Restart your AI tool to pick up the new MCP configuration."
+  if $DO_CLAUDE_CODE; then
+    echo "  Hooks (Claude Code):"
+    echo "    SessionStart  — loads your personality + archetype on every session"
+    echo "    PromptSubmit  — extracts emotion/intent from every typed prompt"
+    echo ""
+  fi
+  echo "    Restart your AI tool to pick up the new configuration."
   echo ""
 fi
 
