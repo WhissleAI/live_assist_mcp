@@ -2,7 +2,13 @@
 # claude-voice — Launch Claude Code CLI with voice dictation (alt+v toggle)
 # Requires: sox (brew install sox)
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SOURCE="$0"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 
 # Load token from persisted config if not already set
 if [ -z "${WHISSLE_AUTH_TOKEN:-}" ]; then
