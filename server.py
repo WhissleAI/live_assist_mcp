@@ -277,6 +277,78 @@ async def get_user_context() -> str:
     return "\n\n".join(parts) if parts else "No user context available."
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def get_user_personality() -> str:
+    """Retrieve the user's personality profile, archetype, and voice behavioral data.
+
+    Returns a comprehensive personality snapshot:
+    - Personality text (AI-generated description of user's communication style)
+    - Archetype classification (e.g. "Analytical Strategist", "Creative Explorer")
+    - Voice profile (emotion, intent, age, gender distributions from voice analysis)
+    - User name and timezone
+
+    Use this to personalize responses, match the user's tone, or understand their
+    communication preferences. Complements get_user_context which focuses on
+    conversation history.
+    """
+    uid = await _ensure_user_id()
+    results: dict[str, Any] = {}
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        headers = _auth_headers()
+
+        async def _fetch(label: str, url: str) -> dict | None:
+            try:
+                r = await client.get(url, headers=headers)
+                r.raise_for_status()
+                return r.json()
+            except Exception as e:
+                logger.warning("get_user_personality: %s fetch failed: %s", label, e)
+                return None
+
+        import asyncio
+        personality_data, archetype_data, voice_data = await asyncio.gather(
+            _fetch("personality", f"{BACKEND_URL}/personality/{uid}"),
+            _fetch("archetype", f"{BACKEND_URL}/archetype/{uid}"),
+            _fetch("voice-profile", f"{BACKEND_URL}/voice-profile/{uid}"),
+        )
+
+    parts: list[str] = []
+
+    if personality_data and personality_data.get("personality"):
+        parts.append(f"## Personality\n{personality_data['personality']}")
+        if personality_data.get("name"):
+            parts.append(f"Name: {personality_data['name']}")
+        if personality_data.get("timezone"):
+            parts.append(f"Timezone: {personality_data['timezone']}")
+
+    if archetype_data and archetype_data.get("success"):
+        arch = archetype_data.get("archetype", {})
+        if isinstance(arch, dict):
+            if arch.get("name"):
+                parts.append(f"## Archetype: {arch['name']}")
+            if arch.get("description"):
+                parts.append(arch["description"])
+            if arch.get("style_prompt"):
+                parts.append(f"Communication style guide:\n{arch['style_prompt']}")
+        elif isinstance(arch, str):
+            parts.append(f"## Archetype\n{arch}")
+
+    if voice_data and voice_data.get("success") and voice_data.get("profile"):
+        vp = voice_data["profile"]
+        vp_parts = [f"## Voice Profile ({vp.get('sampleCount', 0)} samples)"]
+        for key in ("emotion", "intent"):
+            dist = vp.get(key)
+            if dist and isinstance(dist, list):
+                top = sorted(dist, key=lambda x: x.get("value", 0), reverse=True)[:3]
+                labels = ", ".join(f"{t['label']} ({t['value']:.0%})" for t in top if t.get("label"))
+                if labels:
+                    vp_parts.append(f"{key.title()} distribution: {labels}")
+        parts.append("\n".join(vp_parts))
+
+    return "\n\n".join(parts) if parts else "No personality data available yet. Use the assistant more to build your profile."
+
+
 # ---------------------------------------------------------------------------
 # MCP Tools — Memory
 # ---------------------------------------------------------------------------
