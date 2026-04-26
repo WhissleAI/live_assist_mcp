@@ -1,4 +1,4 @@
-"""Shared config and utilities for Whissle Claude Code hooks."""
+"""Shared config and utilities for Lulu hooks."""
 
 import os
 import json

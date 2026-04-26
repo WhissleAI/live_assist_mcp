@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SessionStart hook — loads user personality and archetype on session start.
 
-Fetches from the Whissle backend so Claude knows the user's communication
+Fetches from the Lulu backend so your AI tool knows your communication
 style from the very first prompt.
 """
 
@@ -52,7 +52,7 @@ def main():
     if not parts:
         sys.exit(0)
 
-    context = "[Whissle Profile] " + " | ".join(parts)
+    context = "[Lulu Profile] " + " | ".join(parts)
     print(context)
     sys.exit(0)
 

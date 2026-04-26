@@ -1,7 +1,7 @@
 """
-Whissle Live Assist — MCP Server for Claude Code / Cursor / Claude Desktop.
+Lulu — MCP Server for Claude Code, Cursor, OpenCode, and Claude Desktop.
 
-Exposes the full Whissle agentic backend as MCP tools so that any MCP-capable
+Exposes the full Lulu agentic backend as MCP tools so that any MCP-capable
 AI coding assistant can leverage the user's personal context and all gateway
 capabilities — memories, calendar, email, contacts, research, web search,
 code execution, Google Drive/Sheets/Tasks, finance, media, navigation, and more.
@@ -89,12 +89,12 @@ async def _ensure_user_id() -> str:
 
 
 mcp = FastMCP(
-    "Whissle Live Assist",
+    "Lulu",
     instructions=(
         "Full-featured personal AI assistant with 30+ tools — memories, personality, "
         "calendar, email, contacts, web search, research, code execution, Google "
         "Drive/Sheets/Tasks, weather, news, finance, media, navigation, and more. "
-        "All personalized to the user via their Whissle profile."
+        "All personalized to the user via their Lulu profile."
     ),
     host="0.0.0.0",
     port=_port,
@@ -138,7 +138,7 @@ async def _agent_call(
     mode_hint: str = "",
     **extra: Any,
 ) -> dict[str, Any]:
-    """Stream a query to the Whissle agent and return full result with metadata."""
+    """Stream a query to the Lulu agent and return full result with metadata."""
     uid = await _ensure_user_id()
     body: dict[str, Any] = {
         "query": query,
@@ -228,7 +228,7 @@ async def _backend_get(endpoint: str, params: dict[str, Any] | None = None) -> d
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def ask_agent(query: str) -> str:
-    """Ask the Whissle intelligent agent any question with your full personal context.
+    """Ask the Lulu intelligent agent any question with your full personal context.
 
     The agent automatically detects intent and routes to the right capability —
     chat, research, weather, calendar, email, news, memories, code execution,
@@ -255,7 +255,7 @@ async def ask_agent(query: str) -> str:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def deep_research(query: str) -> str:
-    """Run multi-source web research through the Whissle agent, personalized to you.
+    """Run multi-source web research through the Lulu agent, personalized to you.
 
     Searches multiple sources, synthesizes findings, and returns a detailed report
     with citations. Use for technical research, competitive analysis, best practices,
@@ -269,7 +269,7 @@ async def deep_research(query: str) -> str:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_user_context() -> str:
-    """Retrieve your full Whissle profile: personality, archetype, communication style, and recent history.
+    """Retrieve your full Lulu profile: personality, archetype, communication style, and recent history.
 
     Use this when you need to understand the user's preferences or style before
     generating code, documentation, or responses.
@@ -386,7 +386,7 @@ async def get_user_personality() -> str:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def search_memories(query: str) -> str:
-    """Search your personal Whissle memories for context relevant to a query.
+    """Search your personal Lulu memories for context relevant to a query.
 
     Use this to recall past decisions, preferences, notes, or anything
     you've previously told the assistant.
@@ -410,7 +410,7 @@ async def search_memories(query: str) -> str:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def store_memory(content: str, category: str = "general") -> str:
-    """Store a piece of information to your Whissle memory for future recall.
+    """Store a piece of information to your Lulu memory for future recall.
 
     Use this to save decisions, preferences, important context, or anything
     you want the assistant to remember across sessions.
@@ -455,7 +455,7 @@ async def check_email(query: str = "summarize my recent emails") -> str:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def send_email(to: str, subject: str, body: str) -> str:
-    """Send an email via the user's connected email provider (Whissle or Gmail).
+    """Send an email via the user's connected email provider (Lulu or Gmail).
 
     Args:
         to: Recipient email address
@@ -622,11 +622,11 @@ async def complete_task(task_id: str) -> str:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def web_search(query: str) -> str:
-    """Search the web for current information via the Whissle agent.
+    """Search the web for current information via the Lulu agent.
 
     Use for real-time data, recommendations, prices, reviews, documentation,
     or anything that needs up-to-date info. Powered by DuckDuckGo through
-    the Whissle gateway — no additional API keys needed.
+    the Lulu gateway — no additional API keys needed.
 
     Args:
         query: Search query (e.g. "FastAPI websocket best practices 2026")
@@ -846,7 +846,7 @@ async def calculate(expression: str) -> str:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def run_code(code: str, language: str = "python") -> str:
-    """Execute Python or JavaScript code in a sandbox on the Whissle gateway.
+    """Execute Python or JavaScript code in a sandbox on the Lulu gateway.
 
     Use for calculations, data processing, chart generation, CSV analysis,
     or testing code snippets. Returns stdout, stderr, and generated files.
@@ -880,7 +880,7 @@ async def analyze_document(content: str, file_type: str = "txt", question: str =
 async def extract_text_metadata(text: str, context: str = "") -> str:
     """Extract speech-style metadata from text: emotion, intent, age group, gender, entities, speaker changes.
 
-    Same metadata that Whissle STT extracts from audio, but inferred from text.
+    Same metadata that Lulu STT extracts from audio, but inferred from text.
 
     Args:
         text: The text or transcript to analyze

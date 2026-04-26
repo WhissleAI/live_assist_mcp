@@ -1,6 +1,6 @@
 # lulu-code
 
-Personal AI middleware for Claude Code, Cursor, and VS Code. Lulu intercepts both text and voice input streams, enriches them with emotion, intent, and behavioral metadata, then passes the augmented context to your AI tool. Every interaction builds a personality profile that makes your coding assistant increasingly personalized over time.
+Personal AI middleware for Claude Code, Cursor, VS Code, and OpenCode. Lulu intercepts both text and voice input streams, enriches them with emotion, intent, and behavioral metadata, then passes the augmented context to your AI tool. Every interaction builds a personality profile that makes your coding assistant increasingly personalized over time.
 
 ## How it works
 
@@ -34,28 +34,28 @@ You (typing or speaking)
 │  + personality context               │
 └──────────────┬───────────────────────┘
                v
-┌──────────────────────────────────────┐
-│  Claude Code / Cursor / VS Code      │
-│                                      │
-│  Receives enriched input with full   │
-│  user context — acts on it           │
-│                                      │
-│  + 35 MCP tools (calendar, email,    │
-│    memory, research, drive, etc.)    │
-└──────────────┬───────────────────────┘
-               v
-      Whissle Gateway (api.whissle.ai)
-      Personality, archetype, behavioral
-      profile, conversation memory
+┌────────────────────────────────────────────────┐
+│  Claude Code / Cursor / VS Code / OpenCode     │
+│                                                │
+│  Receives enriched input with full             │
+│  user context — acts on it                     │
+│                                                │
+│  + 35 MCP tools (calendar, email,              │
+│    memory, research, drive, etc.)              │
+└───────────────────────┬────────────────────────┘
+                        v
+          Whissle Gateway (api.whissle.ai)
+          Personality, archetype, behavioral
+          profile, conversation memory
 ```
 
 Three layers:
 
 | Layer | What it does | How |
 |---|---|---|
-| **Text stream** | Intercepts every typed prompt, extracts emotion + intent, enriches input before the AI tool sees it | Hooks (`UserPromptSubmit`, `SessionStart`) |
+| **Text stream** | Intercepts every typed prompt, extracts emotion + intent, enriches input before the AI tool sees it | Hooks (`UserPromptSubmit`, `SessionStart`) — Claude Code only |
 | **Voice stream** | Alt+V push-to-talk — streams audio to Whissle ASR, returns transcription with emotion, intent, demographics, speech rate, speaker ID | `claude-voice` PTY wrapper |
-| **MCP tools** | 35+ tools — calendar, email, contacts, memory, research, web search, Drive, Tasks, finance, media, navigation, weather | MCP server (`server.py`) |
+| **MCP tools** | 35+ tools — calendar, email, contacts, memory, research, web search, Drive, Tasks, finance, media, navigation, weather | MCP server (`server.py`) — all clients |
 
 ## Install
 
@@ -70,11 +70,11 @@ The installer will:
 2. Prompt for your Whissle token (get one at [lulu.whissle.ai/access](https://lulu.whissle.ai/access))
 3. Validate the token against the Whissle gateway
 4. Set up the Python venv and MCP server
-5. Configure MCP for Claude Code, Cursor, and/or Claude Desktop
+5. Configure MCP for Claude Code, Cursor, OpenCode, and/or Claude Desktop
 6. Configure hooks for Claude Code (emotion/intent on every prompt, personality on session start)
 7. Install claude-voice dependencies and optionally symlink to PATH
 
-Restart Claude Code after setup. All tools and hooks activate automatically.
+Restart your AI tool after setup. All tools (and hooks for Claude Code) activate automatically.
 
 ### Setup flags
 
@@ -84,6 +84,7 @@ Restart Claude Code after setup. All tools and hooks activate automatically.
 ./setup.sh --claude-code    # Claude Code only
 ./setup.sh --cursor         # Cursor only
 ./setup.sh --claude-desktop # Claude Desktop only
+./setup.sh --opencode       # OpenCode only
 ./setup.sh --mcp-only       # skip voice setup (no Node.js/sox needed)
 ./setup.sh --voice-only     # skip MCP server setup
 ```
@@ -92,7 +93,7 @@ Restart Claude Code after setup. All tools and hooks activate automatically.
 
 Configured automatically by `./setup.sh` for Claude Code. Two hooks with visible spinners:
 
-**SessionStart** — fires once when Claude Code starts. Shows `Lulu: loading your personality...` spinner. Fetches your personality profile and archetype from the Whissle backend, injects it as context so Claude knows your communication style from the first prompt.
+**SessionStart** — fires once when Claude Code starts. Shows `Lulu: loading your personality...` spinner. Fetches your personality profile and archetype from the Lulu backend, injects it as context so your AI tool knows your communication style from the first prompt.
 
 **UserPromptSubmit** — fires on every Enter press. Shows `Lulu: reading emotion + intent...` spinner. Runs local regex to extract emotion and intent (~5ms), returns it as `additionalContext` that Claude sees:
 ```
@@ -218,6 +219,23 @@ If you prefer not to use `./setup.sh`:
 }
 ```
 
+**OpenCode** — `~/.config/opencode/opencode.json`:
+```json
+{
+  "mcp": {
+    "whissle": {
+      "type": "local",
+      "command": ["/path/to/lulu-code/venv/bin/python", "/path/to/lulu-code/server.py"],
+      "environment": {
+        "WHISSLE_API_TOKEN": "wh_your_token_here",
+        "WHISSLE_USER_NAME": "Your Name",
+        "WHISSLE_LOCATION": "Your City"
+      }
+    }
+  }
+}
+```
+
 ## Troubleshooting
 
 **Hooks not firing** — Run `claude --debug hooks` to see hook lifecycle. Check `~/.claude/settings.json` has the `hooks` section. Restart Claude Code after setup.
@@ -228,13 +246,21 @@ If you prefer not to use `./setup.sh`:
 
 **Voice server connection failed** — Check your token is valid and you have internet connectivity
 
-**MCP tools not appearing** — Restart Claude Code after `./setup.sh`. Check `~/.claude/settings.json` has the `whissle` MCP entry.
+**MCP tools not appearing** — Restart your AI tool after `./setup.sh`. Check the relevant config file has the `whissle` MCP entry:
+- Claude Code: `~/.claude/settings.json`
+- Cursor: `~/.cursor/mcp.json`
+- OpenCode: `~/.config/opencode/opencode.json`
 
 **Token expired** — Re-run `./setup.sh` to enter a new token, or edit `~/.claude-voice/.env` directly.
 
 ## Uninstall
 
+**Claude Code:**
 ```bash
 claude mcp remove whissle -s user
 # Remove hooks from ~/.claude/settings.json (delete the "hooks" key)
 ```
+
+**Cursor:** Remove the `whissle` entry from `~/.cursor/mcp.json`.
+
+**OpenCode:** Remove the `whissle` entry from the `mcp` section in `~/.config/opencode/opencode.json`.
