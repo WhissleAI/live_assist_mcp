@@ -127,6 +127,7 @@ async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
             if not chunks and event.get("summary"):
                 chunks.append(event["summary"])
             metadata = event
+            break
         elif etype == "rl_turn_logged":
             rl_state = event.get("state", {})
         elif etype == "error":

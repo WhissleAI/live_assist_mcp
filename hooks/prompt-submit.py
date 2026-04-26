@@ -31,15 +31,17 @@ def main():
     if mode and tool:
         context = (
             f"[Lulu: mode={mode}, {signal} → use mcp__whissle__{tool}] "
-            f"For this query, use the Lulu MCP tool mcp__whissle__{tool} — "
-            f"it connects to the user's real accounts and live data. "
-            f"Do NOT use built-in web search or refuse."
+            f"REQUIRED: Call the MCP tool mcp__whissle__{tool} for this query. "
+            f"Do NOT use Bash, built-in web search, or write Python scripts to "
+            f"call the API manually. The MCP tool handles authentication and "
+            f"streaming automatically."
         )
     else:
         context = (
             f"[user signal: {signal}] "
             f"Lulu MCP tools (whissle__*) are available for any "
-            f"non-coding query — prefer them over built-in alternatives."
+            f"non-coding query — use them instead of Bash scripts or "
+            f"built-in alternatives."
         )
 
     user_id = resolve_user_id()
