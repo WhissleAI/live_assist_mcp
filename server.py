@@ -108,6 +108,7 @@ mcp = FastMCP(
 async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
     chunks: list[str] = []
     metadata: dict[str, Any] = {}
+    rl_state: dict[str, Any] = {}
     async for line in resp.aiter_lines():
         if not line.startswith("data: "):
             continue
@@ -122,22 +123,30 @@ async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
             if not chunks and event.get("summary"):
                 chunks.append(event["summary"])
             metadata = event
+        elif etype == "rl_turn_logged":
+            rl_state = event.get("state", {})
         elif etype == "error":
             raise RuntimeError(event.get("message", "Agent error"))
-    return {"text": "".join(chunks), **metadata}
+    result = {"text": "".join(chunks), **metadata}
+    if rl_state:
+        result["_rl_state"] = rl_state
+    return result
 
 
-async def _agent_stream(
+async def _agent_call(
     query: str,
     mode_hint: str = "",
     **extra: Any,
-) -> str:
+) -> dict[str, Any]:
+    """Stream a query to the Whissle agent and return full result with metadata."""
     uid = await _ensure_user_id()
     body: dict[str, Any] = {
         "query": query,
         "user_id": uid,
         "user_name": USER_NAME,
         "location": USER_LOCATION,
+        "trigger_type": "typed",
+        "source": "mcp",
     }
     if mode_hint:
         body["mode_hint"] = mode_hint
@@ -152,7 +161,16 @@ async def _agent_stream(
             headers=headers,
         ) as resp:
             resp.raise_for_status()
-            result = await _consume_sse(resp)
+            return await _consume_sse(resp)
+
+
+async def _agent_stream(
+    query: str,
+    mode_hint: str = "",
+    **extra: Any,
+) -> str:
+    """Stream a query and return just the text response."""
+    result = await _agent_call(query, mode_hint, **extra)
     return result.get("text", "(no response)")
 
 
@@ -216,10 +234,23 @@ async def ask_agent(query: str) -> str:
     chat, research, weather, calendar, email, news, memories, code execution,
     and more. Use this as the general-purpose "do anything" tool.
 
+    Every query is analyzed for emotion, intent, and demographics — building
+    the user's personality profile over time from both text and voice input.
+
     Args:
         query: Your question or request (e.g. "What should I focus on today?")
     """
-    return await _agent_stream(query)
+    result = await _agent_call(query)
+    text = result.get("text", "(no response)")
+    rl = result.get("_rl_state", {})
+    if rl and rl.get("dominantEmotion"):
+        meta_parts = []
+        if rl.get("dominantEmotion"):
+            meta_parts.append(f"emotion: {rl['dominantEmotion']}")
+        if rl.get("dominantIntent"):
+            meta_parts.append(f"intent: {rl['dominantIntent']}")
+        text += f"\n\n[user signal: {', '.join(meta_parts)}]"
+    return text
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
