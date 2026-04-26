@@ -677,16 +677,6 @@ async def get_weather(location: str = "") -> str:
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def get_news(query: str = "top headlines today") -> str:
-    """Get the latest news headlines.
-
-    Args:
-        query: News topic or "top headlines" for general news
-    """
-    return await _agent_stream(query, mode_hint="news")
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def daily_briefing() -> str:
     """Get your personalized daily briefing — weather, calendar, and top news combined."""
     return await _agent_stream("daily briefing", mode_hint="briefing")

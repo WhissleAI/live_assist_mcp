@@ -22,6 +22,7 @@ USER_ID = os.getenv("WHISSLE_USER_ID", "")
 USER_NAME = os.getenv("WHISSLE_USER_NAME", "")
 
 _resolved_user_id = None
+_UID_CACHE_FILE = os.path.join(os.path.expanduser("~"), ".claude-voice", ".resolved_uid")
 
 
 def auth_headers(user_id: str = "") -> dict:
@@ -34,6 +35,26 @@ def auth_headers(user_id: str = "") -> dict:
     return headers
 
 
+def _read_cached_uid() -> str:
+    try:
+        with open(_UID_CACHE_FILE) as f:
+            data = json.load(f)
+        if data.get("token") == API_TOKEN and data.get("uid"):
+            return data["uid"]
+    except Exception:
+        pass
+    return ""
+
+
+def _write_cached_uid(uid: str) -> None:
+    try:
+        os.makedirs(os.path.dirname(_UID_CACHE_FILE), exist_ok=True)
+        with open(_UID_CACHE_FILE, "w") as f:
+            json.dump({"token": API_TOKEN, "uid": uid}, f)
+    except Exception:
+        pass
+
+
 def resolve_user_id() -> str:
     global _resolved_user_id
     if USER_ID:
@@ -42,6 +63,10 @@ def resolve_user_id() -> str:
         return _resolved_user_id
     if not API_TOKEN or not API_TOKEN.startswith("wh_"):
         return ""
+    cached = _read_cached_uid()
+    if cached:
+        _resolved_user_id = cached
+        return cached
     try:
         import urllib.request
         url = f"{BACKEND_URL}/api-tokens/validate?token={API_TOKEN}"
@@ -50,6 +75,7 @@ def resolve_user_id() -> str:
             data = json.loads(resp.read())
             if data.get("valid") and data.get("deviceId"):
                 _resolved_user_id = data["deviceId"]
+                _write_cached_uid(_resolved_user_id)
                 return _resolved_user_id
     except Exception:
         pass
@@ -67,7 +93,7 @@ def read_hook_input() -> dict:
 
 _INTENT_PATTERNS = [
     (r"\b(what|how|why|when|where|who|which|explain|tell me)\b", "QUERY"),
-    (r"\b(do|open|close|send|create|add|delete|run|start|stop)\b", "COMMAND"),
+    (r"\b(do|open|close|send|create|add|delete|run|start|stop|fix|change|update|remove|use|set|make|install|deploy|build|test|implement|migrate|refactor|push|merge|revert)\b", "COMMAND"),
     (r"\b(i (?:think|feel|prefer|like|love|hate|want)|my |i'm )\b", "INFORM"),
     (r"\b(play|find|search|look up)\b", "QUERY"),
     (r"\b(please|could you|can you|would you)\b", "REQUEST"),
@@ -78,13 +104,14 @@ _EMOTION_KEYWORDS = {
     "annoyed": "ANGRY", "stressed": "ANGRY", "furious": "ANGRY",
     "happy": "HAPPY", "excited": "HAPPY", "love": "HAPPY",
     "great": "HAPPY", "awesome": "HAPPY", "amazing": "HAPPY",
+    "perfect": "HAPPY",
     "sad": "SAD", "down": "SAD", "depressed": "SAD",
     "tired": "SAD", "lonely": "SAD", "disappointed": "SAD",
     "scared": "FEARFUL", "afraid": "FEARFUL", "worried": "FEARFUL",
     "anxious": "FEARFUL", "nervous": "FEARFUL",
     "disgusted": "DISGUSTED", "gross": "DISGUSTED",
     "surprised": "SURPRISED", "wow": "SURPRISED", "unexpected": "SURPRISED",
-    "urgent": "ANGRY", "broken": "ANGRY", "bug": "ANGRY", "error": "ANGRY",
+    "curious": "NEUTRAL", "confused": "NEUTRAL",
 }
 
 

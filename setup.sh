@@ -164,10 +164,13 @@ if ! $SKIP_MCP; then
   fi
 
   info "Installing Python dependencies..."
-  if ! "$VENV_DIR/bin/pip" install -q -e "$SCRIPT_DIR" 2>&1 | grep -v "^\[notice\]"; then
-    err "pip install failed. Try deleting venv/ and re-running setup."
+  PIP_OUTPUT=$("$VENV_DIR/bin/pip" install -q -e "$SCRIPT_DIR" 2>&1) || {
+    err "pip install failed:"
+    echo "$PIP_OUTPUT" | grep -v "^\[notice\]" >&2
+    err "Try deleting venv/ and re-running setup."
     exit 1
-  fi
+  }
+  echo "$PIP_OUTPUT" | grep -v "^\[notice\]" | grep -v "^$" || true
   ok "MCP server ready (35+ tools)"
   echo ""
 fi
@@ -273,31 +276,6 @@ if ! $SKIP_MCP; then
   fi
 
   # ── Helpers ──────────────────────────────────────────────────────────────
-  build_env_json() {
-    local env="{"
-    local first=true
-    if [ -n "${WHISSLE_API_TOKEN:-}" ]; then
-      env+="\"WHISSLE_API_TOKEN\":\"$WHISSLE_API_TOKEN\""
-      first=false
-    elif [ -n "${WHISSLE_USER_ID:-}" ]; then
-      env+="\"WHISSLE_USER_ID\":\"$WHISSLE_USER_ID\""
-      first=false
-    fi
-    if [ -n "${WHISSLE_USER_NAME:-}" ]; then
-      $first || env+=","
-      env+="\"WHISSLE_USER_NAME\":\"$WHISSLE_USER_NAME\""
-      first=false
-    fi
-    if [ -n "${WHISSLE_LOCATION:-}" ]; then
-      $first || env+=","
-      env+="\"WHISSLE_LOCATION\":\"$WHISSLE_LOCATION\""
-    fi
-    env+="}"
-    echo "$env"
-  }
-
-  ENV_JSON=$(build_env_json)
-
   ensure_jq() {
     if ! command -v jq &>/dev/null; then
       err "jq is required for JSON config updates."
@@ -327,6 +305,25 @@ if ! $SKIP_MCP; then
       fi
     fi
   }
+
+  build_env_json() {
+    ensure_jq
+    local env="{}"
+    if [ -n "${WHISSLE_API_TOKEN:-}" ]; then
+      env=$(echo "$env" | jq --arg v "$WHISSLE_API_TOKEN" '.WHISSLE_API_TOKEN = $v')
+    elif [ -n "${WHISSLE_USER_ID:-}" ]; then
+      env=$(echo "$env" | jq --arg v "$WHISSLE_USER_ID" '.WHISSLE_USER_ID = $v')
+    fi
+    if [ -n "${WHISSLE_USER_NAME:-}" ]; then
+      env=$(echo "$env" | jq --arg v "$WHISSLE_USER_NAME" '.WHISSLE_USER_NAME = $v')
+    fi
+    if [ -n "${WHISSLE_LOCATION:-}" ]; then
+      env=$(echo "$env" | jq --arg v "$WHISSLE_LOCATION" '.WHISSLE_LOCATION = $v')
+    fi
+    echo "$env"
+  }
+
+  ENV_JSON=$(build_env_json)
 
   upsert_mcp_config() {
     local file="$1" name="$2" server_json="$3"
