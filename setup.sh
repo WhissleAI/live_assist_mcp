@@ -396,8 +396,8 @@ except (FileNotFoundError, json.JSONDecodeError):
     settings = {}
 
 hooks = settings.setdefault('hooks', {})
-hooks['UserPromptSubmit'] = [{'hooks': [{'type': 'command', 'command': '''$PROMPT_HOOK_CMD'''}]}]
-hooks['SessionStart'] = [{'hooks': [{'type': 'command', 'command': '''$SESSION_HOOK_CMD'''}]}]
+hooks['UserPromptSubmit'] = [{'hooks': [{'type': 'command', 'command': '''$PROMPT_HOOK_CMD''', 'statusMessage': 'Lulu: reading emotion + intent...'}]}]
+hooks['SessionStart'] = [{'hooks': [{'type': 'command', 'command': '''$SESSION_HOOK_CMD''', 'statusMessage': 'Lulu: loading your personality...'}]}]
 
 with open(settings_path, 'w') as f:
     json.dump(settings, f, indent=2)

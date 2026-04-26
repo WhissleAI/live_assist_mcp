@@ -1,6 +1,6 @@
-# whissle-claude
+# lulu-claude
 
-Personal AI middleware for Claude Code — voice dictation, emotion/intent detection, and 35+ MCP tools. Whissle sits between you and Claude, analyzing every input (typed or spoken) for emotion, intent, and demographics, building a personality profile that makes Claude increasingly personalized over time.
+Personal AI middleware for Claude Code — voice dictation, emotion/intent detection, and 35+ MCP tools. Lulu sits between you and Claude, analyzing every input (typed or spoken) for emotion, intent, and demographics, building a personality profile that makes Claude increasingly personalized over time.
 
 ## How it works
 
@@ -44,8 +44,8 @@ Three layers:
 ## Install
 
 ```bash
-git clone https://github.com/WhissleAI/whissle-claude.git
-cd whissle-claude
+git clone https://github.com/WhissleAI/lulu-claude.git
+cd lulu-claude
 ./setup.sh
 ```
 
@@ -74,11 +74,11 @@ Restart Claude Code after setup. All tools and hooks activate automatically.
 
 ## Text hooks
 
-Configured automatically by `./setup.sh` for Claude Code. Two hooks:
+Configured automatically by `./setup.sh` for Claude Code. Two hooks with visible spinners:
 
-**SessionStart** — fires once when Claude Code starts. Fetches your personality profile and archetype from the Whissle backend, injects it as context so Claude knows your communication style from the first prompt.
+**SessionStart** — fires once when Claude Code starts. Shows `Lulu: loading your personality...` spinner. Fetches your personality profile and archetype from the Whissle backend, injects it as context so Claude knows your communication style from the first prompt.
 
-**UserPromptSubmit** — fires on every Enter press. Runs local regex to extract emotion and intent (~5ms), returns it as `additionalContext` that Claude sees:
+**UserPromptSubmit** — fires on every Enter press. Shows `Lulu: reading emotion + intent...` spinner. Runs local regex to extract emotion and intent (~5ms), returns it as `additionalContext` that Claude sees:
 ```
 [user signal: emotion=ANGRY (60%), intent=QUERY (70%)]
 ```
@@ -147,7 +147,7 @@ All input types feed the same personality pipeline.
 ## Project Structure
 
 ```
-whissle-claude/
+lulu-claude/
   setup.sh               # Unified installer — MCP + hooks + voice
   server.py              # MCP server — 35+ tools
   pyproject.toml         # Python package config
@@ -177,8 +177,8 @@ If you prefer not to use `./setup.sh`:
 {
   "mcpServers": {
     "whissle": {
-      "command": "/path/to/whissle-claude/venv/bin/python",
-      "args": ["/path/to/whissle-claude/server.py"],
+      "command": "/path/to/lulu-claude/venv/bin/python",
+      "args": ["/path/to/lulu-claude/server.py"],
       "env": {
         "WHISSLE_API_TOKEN": "wh_your_token_here",
         "WHISSLE_USER_NAME": "Your Name",
@@ -194,8 +194,8 @@ If you prefer not to use `./setup.sh`:
 {
   "mcpServers": {
     "whissle": {
-      "command": "/path/to/whissle-claude/venv/bin/python",
-      "args": ["/path/to/whissle-claude/server.py"],
+      "command": "/path/to/lulu-claude/venv/bin/python",
+      "args": ["/path/to/lulu-claude/server.py"],
       "env": { "WHISSLE_API_TOKEN": "wh_your_token_here" }
     }
   }

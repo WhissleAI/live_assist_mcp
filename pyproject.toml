@@ -1,7 +1,7 @@
 [project]
-name = "whissle-mcp"
+name = "lulu-claude"
 version = "0.1.0"
-description = "Whissle Live Assist MCP Server — personal AI context for Cursor & Claude Desktop"
+description = "Lulu — personal AI middleware for Claude Code, Cursor & Claude Desktop"
 requires-python = ">=3.11"
 dependencies = [
     "mcp[cli]>=1.2.0",
