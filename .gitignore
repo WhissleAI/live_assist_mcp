@@ -1,8 +1,19 @@
+# Python
 __pycache__/
 *.pyc
 *.egg-info/
 dist/
 build/
-.env
 venv/
 .venv/
+
+# Node.js (claude-voice)
+claude-voice/node_modules/
+claude-voice/package-lock.json
+claude-voice/bun.lock
+
+# Environment / secrets
+.env
+
+# Runtime artifacts
+.claude-voice/

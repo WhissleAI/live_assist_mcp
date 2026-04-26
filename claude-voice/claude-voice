@@ -1,0 +1,27 @@
+#!/bin/bash
+# claude-voice — Launch Claude Code CLI with voice dictation (alt+v toggle)
+# Requires: sox (brew install sox)
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Load token from persisted config if not already set
+if [ -z "${WHISSLE_AUTH_TOKEN:-}" ]; then
+  ENV_FILE="${HOME}/.claude-voice/.env"
+  if [ -f "$ENV_FILE" ]; then
+    while IFS='=' read -r key val; do
+      key=$(echo "$key" | xargs)
+      [[ -z "$key" || "$key" == \#* ]] && continue
+      val=$(echo "$val" | xargs)
+      # Strip surrounding quotes
+      val="${val%\"}" ; val="${val#\"}"
+      val="${val%\'}" ; val="${val#\'}"
+      export "$key=$val"
+    done < "$ENV_FILE"
+  fi
+  # Bridge: MCP uses API_TOKEN, voice uses AUTH_TOKEN
+  if [ -n "${WHISSLE_API_TOKEN:-}" ] && [ -z "${WHISSLE_AUTH_TOKEN:-}" ]; then
+    export WHISSLE_AUTH_TOKEN="$WHISSLE_API_TOKEN"
+  fi
+fi
+
+exec npx --prefix "$SCRIPT_DIR" tsx "$SCRIPT_DIR/src/index.ts" "$@"
