@@ -5,6 +5,7 @@ Two-in-one package: **MCP tools** (35+ tools for personal AI context) and **clau
 ## Quick Setup
 
 ```bash
+git clone https://github.com/WhissleAI/whissle-claude.git && cd whissle-claude
 ./setup.sh              # interactive — prompts for everything
 ./setup.sh --all        # all clients (Claude Code + Cursor + Claude Desktop)
 ./setup.sh --claude-code
@@ -67,7 +68,7 @@ The MCP server is deployed on Cloud Run. Add the URL to your config:
 #### Option B: Run locally (stdio)
 
 ```bash
-cd live_assist_mcp
+git clone https://github.com/WhissleAI/whissle-claude.git && cd whissle-claude
 python -m venv venv && source venv/bin/activate
 pip install -e .
 ```
@@ -78,8 +79,8 @@ pip install -e .
 {
   "mcpServers": {
     "whissle": {
-      "command": "/path/to/live_assist_mcp/venv/bin/python",
-      "args": ["/path/to/live_assist_mcp/server.py"],
+      "command": "/path/to/whissle-claude/venv/bin/python",
+      "args": ["/path/to/whissle-claude/server.py"],
       "env": {
         "WHISSLE_API_TOKEN": "wh_your_token_here",
         "WHISSLE_USER_NAME": "Your Name",
@@ -96,8 +97,8 @@ pip install -e .
 {
   "mcpServers": {
     "whissle": {
-      "command": "/path/to/live_assist_mcp/venv/bin/python",
-      "args": ["/path/to/live_assist_mcp/server.py"],
+      "command": "/path/to/whissle-claude/venv/bin/python",
+      "args": ["/path/to/whissle-claude/server.py"],
       "env": {
         "WHISSLE_API_TOKEN": "wh_your_token_here"
       }
@@ -113,7 +114,7 @@ pip install -e .
   "mcpServers": {
     "whissle": {
       "command": "python",
-      "args": ["/path/to/live_assist_mcp/server.py"],
+      "args": ["/path/to/whissle-claude/server.py"],
       "env": {
         "WHISSLE_API_TOKEN": "wh_your_token_here"
       }
@@ -253,7 +254,7 @@ Agent    Backend     ASR/TTS
 ## Project Structure
 
 ```
-live_assist_mcp/
+whissle-claude/
   server.py              # MCP server — 35+ tools (Python)
   pyproject.toml         # Python package config
   setup.sh               # Unified installer
